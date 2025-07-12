@@ -1,0 +1,81 @@
+import cv2
+import mediapipe as mp
+from pynput.keyboard import Key, Controller
+
+# Initialize MediaPipe Hands
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(
+    max_num_hands=1,
+    min_detection_confidence=0.7,
+    min_tracking_confidence=0.5
+)
+mp_draw = mp.solutions.drawing_utils
+
+# Initialize OpenCV video capture with backend (Windows-safe)
+cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # <-- Fix: force DirectShow backend
+
+if not cap.isOpened():
+    raise RuntimeError("❌ Webcam not accessible. Please check camera or permissions.")
+
+cap.set(3, 720)  # Width
+cap.set(4, 480)  # Height
+
+# Initialize keyboard controller
+keyboard = Controller()
+finger_tips = [4, 8, 12, 16, 20]
+
+while True:
+    success, image = cap.read()
+    if not success or image is None:
+        print("⚠️ Frame read failed.")
+        continue
+
+    # Mirror and convert to RGB
+    image = cv2.flip(image, 1)
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image_rgb.flags.writeable = False
+
+    results = hands.process(image_rgb)
+
+    image_rgb.flags.writeable = True
+    image = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            mp_draw.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS)
+
+            fingers_up = 0
+            for tip_id in finger_tips[1:]:  # Ignore thumb
+                if tip_id < len(hand_landmarks.landmark):
+                    tip_y = hand_landmarks.landmark[tip_id].y
+                    base_y = hand_landmarks.landmark[tip_id - 2].y
+                    if tip_y < base_y:
+                        fingers_up += 1
+
+            if fingers_up >= 3:
+                keyboard.press(Key.right)
+                keyboard.release(Key.left)
+                cv2.putText(image, "Accelerate (Right)", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            else:
+                keyboard.press(Key.left)
+                keyboard.release(Key.right)
+                cv2.putText(image, "Brake (Left)", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    else:
+        keyboard.release(Key.left)
+        keyboard.release(Key.right)
+        cv2.putText(image, "No Hand Detected", (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+    cv2.imshow("Gesture-Controlled Hill Climb Racing", image)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Cleanup
+cap.release()
+cv2.destroyAllWindows()
+hands.close()
+
+ 
